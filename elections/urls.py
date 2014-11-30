@@ -5,6 +5,7 @@ urlpatterns = patterns(
     "",
     url(r"^$", views.IndexView.as_view(), name="index"),
     url(r"^manageelection/$", views.manage_election, name="manage_election"),
+    url(r"^vote/$", views.vote, name="vote"),
     url(r"^login/$", "django.contrib.auth.views.login",
         {"template_name" : "elections/login.html"})
 )

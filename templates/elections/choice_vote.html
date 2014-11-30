@@ -1,0 +1,12 @@
+{% extends "elections/vote_base.html" %}
+{% block voting_content %}
+    <p>{{ voting_question }}</p>
+    <form method="post" action="{% url "elections.views.vote" %}">
+        {% csrf_token %}
+        {% for option in options %}
+            <input type="radio" name="ballot" value="{{ option.id }}" />{{ option.name }}<br />
+        {% endfor %}
+        <input type="hidden" name="election" value="{{ election_id }}" />
+        <input type="submit" value="Vote" />
+    </form>
+{% endblock %}
