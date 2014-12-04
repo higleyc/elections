@@ -112,3 +112,8 @@ class CurrentActivity(models.Model):
     activity = models.IntegerField("Activity ID", default=0)
     next_activity = models.IntegerField("Next Activity ID", default=0)
     election = models.ForeignKey(Election, null=True, blank=True)
+
+class Event(models.Model):
+    timestamp = models.DateTimeField(auto_now=True)
+    content = models.TextField()
+    election_round = models.ForeignKey(ElectionRound)

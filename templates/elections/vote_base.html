@@ -3,4 +3,12 @@
 {% block content %}
     <h2>{{ voting_status }}</h2>
     {% block voting_content %}{% endblock %}
+    <table>
+        {% for event in events%}
+            <tr>
+                <td>{{ event.timestamp }}</td>
+                <td>{{ event.content }}</td>
+            </tr>
+        {% endfor %}
+    </table>
 {% endblock %}

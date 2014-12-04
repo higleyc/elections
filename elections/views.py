@@ -16,6 +16,18 @@ class Option:
     id = None
     name = None
 
+def valid_ranking(rankings):
+    numbers = {}
+    for i in range(len(rankings)):
+        numbers[i] = False
+    for ranking in rankings:
+        if ranking[1] <1 or ranking[1] > len(rankings):
+            return False
+        if numbers[ranking[i]]:
+            return False
+        numbers[ranking[i]] = True
+    
+    return True
 
 @login_required
 def manage_election(request):
@@ -24,21 +36,26 @@ def manage_election(request):
     
     message = ""
     button_message = ""
-    election_round = ElectionRound.objects.all()[0]
+    election_round = None
     next_stage = 0
     immediate_refresh = False
-    
-    if request.method == "POST":
-        #election_round = ElectionRound.objects.get(id=request.POST.get("round", ""))
-        pass
-    
-    activities = CurrentActivity.objects.filter(election_round=election_round)
     activity = None
+    
+    # set election round if necessary
+    activities = CurrentActivity.objects.all()
     if len(activities) == 0:
-        # Init
-        activity = CurrentActivity(election_round=election_round, activity=0)
+        if request.method == "POST":
+            election_round = ElectionRound.objects.get(id=int(request.POST.get("round", "")))
+            activity = CurrentActivity(election_round=election_round)
+        else:
+            template = loader.get_template("elections/manage_select_round.html")
+            context = RequestContext(request, {
+                "round_list" : ElectionRound.objects.all()})
+    
+            return HttpResponse(template.render(context))
     else:
         activity = activities[0]
+        election_round = activity.election_round
     
     if request.method == "POST":
         activity.activity = activity.next_activity
@@ -49,7 +66,16 @@ def manage_election(request):
         if election_round.vote_on_order:
             activity.next_activity = 1
         else:
-            activity.next_activity = 5
+            activity.next_activity = 6
+            content = "Election order voting disabled; using preset order:\n"
+            elections = Election.objects.filter(election_round=election_round).order_by("order")
+            for election in elections:
+                content += " "
+                content += election.name
+                content += ","
+            content = content[:-1]
+            event = Event(election_round=election_round,content=content)
+            event.save()
     elif activity.activity == 1:
         message = "Ready to start ordering change voting"
         button_message = "Start ordering voting"
@@ -87,11 +113,14 @@ def manage_election(request):
         yes_votes = plurality.result_vector[election.candidates.get(name="Yes")]
         no_votes = plurality.result_vector[election.candidates.get(name="No")]
         result = ElectionResult(election=election, conclusive=True)
-        if yes_votes / (yes_votes + no_votes) < election_round.order_vote_margin / 100:
+        percent = float(yes_votes) / (yes_votes + no_votes)
+        if percent < election_round.order_vote_margin / 100:
             activity.activity = 6
             activity.save()
             result.winner = election.candidates.get(name="No")
             result.save()
+            event = Event(election_round=election_round,content="Vote to change election order failed")
+            event.save()
             for election in er_tmp.election_set.all():
                 for candidate in election.candidates.all():
                     candidate.delete()
@@ -101,6 +130,8 @@ def manage_election(request):
         else:
             result.winner = election.candidates.get(name="Yes")
             result.save()
+            event = Event(election_round=election_round,content="Vote to change election order passed")
+            event.save()
             message = "Ready to start ordering voting"
             button_message = "Start voting"
             activity.next_activity = 4  
@@ -120,12 +151,19 @@ def manage_election(request):
                 borda = rules.BordaRule(election)
                 profiles = PreferenceProfile.objects.filter(election=election)
                 borda.execute_round(profiles)
+                content = "Determined voting order:\n "
                 for i in range(len(borda.sorted_results)):
                     #FIXME: problem if nonunique names
                     result = borda.sorted_results[i]
                     this_election = Election.objects.get(name=result[0].name)
+                    content += " "
+                    content += this_election.name
+                    content += ","
                     this_election.order = i + 1
                     this_election.save()
+                content = content[:-1]
+                event = Event(election_round=election_round,content=content)
+                event.save()
             
             #cleanup
             for election in er_tmp.election_set.all():
@@ -177,21 +215,27 @@ def manage_election(request):
             for candidate in mechanism.curr_candidates:
                 subelection.candidates.add(candidate)
             subelection.save()
+            event = Event(election_round=election_round,content=("Election for %s requires an additional round" % election.name))
+            event.save()
         else:
             results = ElectionResult(election=election)
             winner = mechanism.get_winner()
             if winner == False:
                 results.conclusive = False
+                event = Event(election_round=election_round,content=("Election for %s was inconclusive" % election.name))
+                event.save()
             else:
                 results.conclusive= True
                 results.winner = winner
+                event = Event(election_round=election_round,content=("Election for %s concluded; the winner is %s" % (election.name, winner.get_name())))
+                event.save()
+                # exclude winner
+                winner.qualified = False
+                for election in Election.objects.filter(election_round=election_round):
+                    if len(election.candidates.filter(id=winner.id)) > 0:
+                        election.candidates.remove(winner)
             results.save()
             
-            # exclude winner
-            winner.qualified = False
-            for election in Election.objects.filter(election_round=election_round):
-                if len(election.candidates.filter(id=winner.id)) > 0:
-                    election.candidates.remove(winner)
             
         
         activity.activity = 6
@@ -200,6 +244,8 @@ def manage_election(request):
     elif activity.acitvity == 9:
         # all voting done
         message = "You're all done"
+        event = Event(election_round=election_round,content="All elections complete")
+        event.save()
         
     
     activity.save()
@@ -217,7 +263,6 @@ def manage_election(request):
 
 @login_required
 def vote(request):
-    election_round = ElectionRound.objects.all()[0]
     user = request.user
     status = ""
     is_voting = False
@@ -226,6 +271,7 @@ def vote(request):
     election_id = -1
     options = []
     option_names = []
+    events = []
     
     
     #ACTIVITY IDS
@@ -241,11 +287,12 @@ def vote(request):
     #9 - done
     
     
-    activities = CurrentActivity.objects.filter(election_round=election_round)
+    activities = CurrentActivity.objects.all()
     if len(activities) == 0:
         status = "Elections are not yet active"
     else:
         activity = activities[0]
+        election_round = activity.election_round
         if request.method == "POST":
             if activity.activity == 2:
                 # receiving do reordering vote
@@ -270,9 +317,14 @@ def vote(request):
                     return HttpResponseBadRequest("You have already voted")
                 profile = PreferenceProfile(user=user, election=election)
                 profile.save()
+                rankings = []
                 for candidate in election.candidates.all():
                     rank = request.POST.get("ballot_" + str(candidate.id), "")
-                    vote = Vote(candidate=candidate, profile=profile, rank=int(rank))
+                    rankings.append((candidate, rank))
+                if not valid_ranking(rankings):
+                    return HttpResponseBadRequest("Invalid ranking")
+                for ranking in rankings:
+                    vote = Vote(candidate=ranking[0], profile=profile, rank=int(ranking[1]))
                     vote.save()
                 status = "Vote cast"
             elif activity.activity == 7:
@@ -285,8 +337,12 @@ def vote(request):
                 if election_round.rule.get_rule_class().requires_full_rank:
                     for candidate in election.candidates.all():
                         rank = request.POST.get("ballot_" + str(candidate.id), "")
-                        vote = Vote(candidate=candidate, profile=profile, rank=int(rank))
-                        vote.save()
+                        rankings.append((candidate, rank))
+                    if not valid_ranking(rankings):
+                        return HttpResponseBadRequest("Invalid ranking")
+                    for ranking in rankings:
+                        vote = Vote(candidate=ranking[0], profile=profile, rank=int(ranking[1]))
+                        vote.save() 
                 else:
                     choice = Candidate.objects.filter(id=request.POST.get("ballot", ""))
                     if len(choice) == 0:
@@ -354,6 +410,7 @@ def vote(request):
             elif activity.activity == 9:
                 # voting done
                 status = "All elections complete"
+        events = Event.objects.filter(election_round=election_round).order_by("-timestamp")
     
     full_options = []        
     for option in options:
@@ -361,6 +418,8 @@ def vote(request):
         o.id = option.id
         o.name = option.get_name()
         full_options.append(o)
+    if len(events) > 10:
+        events = events[:10]
     
     if is_voting and (not voting_full_rank):
         template = loader.get_template("elections/choice_vote.html")
@@ -373,7 +432,8 @@ def vote(request):
         "voting_question" : voting_question,
         "options" : full_options,
         "option_names" : option_names,
-        "election_id" : election_id
+        "election_id" : election_id,
+        "events" : events
     })
     
     return HttpResponse(template.render(context))

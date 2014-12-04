@@ -3,16 +3,6 @@
 {% block content %}
     <form method="post" action="{% url "elections.views.manage_election" %}">
         {% csrf_token %}
-        <select name="round">
-            {% for round in round_list %}
-                {% if round != selected_round %}
-                    <option value="{{ round.id }}">{{ round.name }}</option>
-                {% else %}
-                    <option value="{{ round.id }}" selected="selected">{{ round.name }}</option>
-                {% endif %}
-            {% endfor %}
-        </select>
-        <!--<input type="hidden" name="next_stage" value="{{ next_stage }}" />-->
         <p>{{ status_message }}</p>
         <input type="submit" value="{{ button_message }}" />
     </form>
