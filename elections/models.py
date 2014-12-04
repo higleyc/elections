@@ -90,6 +90,10 @@ class ElectionResult(models.Model):
     election = models.ForeignKey(Election)
     conclusive = models.BooleanField("Is Conclusive?")
     winner = models.ForeignKey(Candidate, null=True, blank=True)
+    
+    def __unicode__(self):
+        return self.election.name
+    
 
 class CurrentActivity(models.Model):
     #ACTIVITY IDS

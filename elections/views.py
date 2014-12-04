@@ -92,13 +92,18 @@ def manage_election(request):
             activity.save()
             result.winner = election.candidates.get(name="No")
             result.save()
-            return manage_election(request)
-        
-        result.winner = election.candidates.get(name="Yes")
-        result.save()
-        message = "Ready to start ordering voting"
-        button_message = "Start voting"
-        activity.next_activity = 4
+            for election in er_tmp.election_set.all():
+                for candidate in election.candidates.all():
+                    candidate.delete()
+                election.delete()
+            er_tmp.delete()
+            immediate_refresh = True
+        else:
+            result.winner = election.candidates.get(name="Yes")
+            result.save()
+            message = "Ready to start ordering voting"
+            button_message = "Start voting"
+            activity.next_activity = 4  
     elif activity.activity == 4:
         message = "Vote on election order open"
         button_message = "Close voting"
@@ -155,12 +160,16 @@ def manage_election(request):
         button_message = "Close voting"
         activity.next_activity = 8
     elif activity.activity == 8:
-        # post-vote - do voting
+        # post-vote - do voting results
         election = activity.election
         rule_class = election_round.rule.get_rule_class()
         mechanism = rule_class(election)
         profiles = PreferenceProfile.objects.filter(election=election)
         if mechanism.execute_round(profiles):
+            after_elections = Election.objects.filter(election_round=election_round).filter(order__gt=election.order)
+            for after_election in after_elections:
+                after_election.order += 1
+                after_election.save()
             subelection = Election(name=(election.name + " - Next round"),
                                    election_round=election_round,
                                    order=(election.order + 1))
@@ -168,10 +177,6 @@ def manage_election(request):
             for candidate in mechanism.curr_candidates:
                 subelection.candidates.add(candidate)
             subelection.save()
-            after_elections = Election.objects.filter(election_round=election_round).filter(order__gt=election.order)
-            for after_election in after_elections:
-                after_election.order += 1
-                after_election.save()
         else:
             results = ElectionResult(election=election)
             winner = mechanism.get_winner()
@@ -181,6 +186,13 @@ def manage_election(request):
                 results.conclusive= True
                 results.winner = winner
             results.save()
+            
+            # exclude winner
+            winner.qualified = False
+            for election in Election.objects.filter(election_round=election_round):
+                if len(election.candidates.filter(id=winner.id)) > 0:
+                    election.candidates.remove(winner)
+            
         
         activity.activity = 6
         immediate_refresh = True

@@ -97,7 +97,7 @@ class PluralityRunoffRule(PluralityRule):
         self.sorted_results = list(reversed(sorted(result_vector.items(),
                                 key=operator.itemgetter(1))))
         if len(self.sorted_results) > 2 and \
-            self.sorted_results[0][1] / len(self.sorted_results) < 0.5:
+            self.sorted_results[0][1] / len(profiles) < 0.5:
             self.curr_candidates = list()
             self.curr_candidates.append(self.sorted_results[0][0])
             self.curr_candidates.append(self.sorted_results[1][0])
