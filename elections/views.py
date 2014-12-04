@@ -1,7 +1,9 @@
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseBadRequest
 from django.views import generic
 from elections.models import *
 from django.template import RequestContext, loader
+from django.contrib.auth.decorators import login_required
+import elections.rules
 import logging
 
 logger = logging.getLogger(__name__)
@@ -66,6 +68,24 @@ def manage_election(request):
         button_message = "Close voting"
         activity.next_activity = 3
     elif activity.activity == 3:
+        # determine if the vote passed
+        er_tmp = ElectionRound.objects.get(name="TMP Order")
+        election = er_tmp.election_set.get(name="Change election order")
+        plurality = rules.PluralityRule(election)
+        profiles = PreferenceProfile.objects.filter(election=election)
+        plurality.execute_round(profiles)
+        yes_votes = plurality.result_vector[election.candidates.get(name="Yes")]
+        no_votes = plurality.result_vector[election.candidates.get(name="No")]
+        result = ElectionResult(election=election, conclusive=True)
+        if yes_votes / (yes_votes + no_votes) < election_round.order_vote_margin / 100:
+            activity.activity = 5
+            activity.save()
+            result.winner = election.candidates.get(name="No")
+            result.save()
+            return vote(request)
+        
+        result.winner = election.candidates.get(name="Yes")
+        result.save()
         message = "Ready to start ordering voting"
         button_message = "Start voting"
         activity.next_activity = 4
@@ -74,11 +94,27 @@ def manage_election(request):
         button_message = "Close voting"
         activity.next_activity = 5
     elif activity.activity == 5:
-        # temp object cleanup
+        # calculate results and temp object cleanup
         if election_round.vote_on_order:
+            #only perform if the vote actually passed
             er_tmp = ElectionRound.objects.get(name="TMP Order")
+            election = er_tmp.election_set.get(name="Change election order")
+            result = ElectionResult.objects.get(election=election)
+            if result.winner.name == "Yes":
+                election = er_tmp.election_set.get(name="Election order")
+                borda = rules.BordaRule(election)
+                profiles = PreferenceProfile.objects.filter(election=election)
+                borda.execute_round(profiles)
+                for i in range(len(borda.sorted_results)):
+                    #FIXME: problem if nonunique names
+                    result = borda.sorted_results[i]
+                    this_election = Election.objects.get(name=result[0].name)
+                    this_election.order = i + 1
+                    this_election.save()
+            
+            #cleanup
             for election in er_tmp.election_set.all():
-                for candidate in election.candidates:
+                for candidate in election.candidates.all():
                     candidate.delete()
                 election.delete()
             er_tmp.delete()
@@ -118,14 +154,17 @@ def manage_election(request):
     
     return HttpResponse(template.render(context))
 
+@login_required
 def vote(request):
     election_round = ElectionRound.objects.all()[0]
+    user = request.user
     status = ""
     is_voting = False
     voting_full_rank = False
     voting_question = ""
     election_id = -1
     options = []
+    
     
     #ACTIVITY IDS
     #0 - pre-start
@@ -143,23 +182,81 @@ def vote(request):
         status = "Elections are not yet active"
     else:
         activity = activities[0]
-        if activity.activity == 0:
-            # Pre-start
-            status = "Nothing is happening yet - please wait"
-        elif activity.activity == 1:
-            # pre do reordering vote
-            status = "Nothing is happening yet - please wait"
-        elif activity.activity == 2:
-            # do reordering vote open
-            status = "Election reordering vote"
-            is_voting = True
-            voting_question = "Should the current election order be changed?"
-            er_tmp = ElectionRound.objects.get(name="TMP Order")
-            election = er_tmp.election_set.get(name="Change election order")
-            options = election.candidates.all()
+        if request.method == "POST":
+            if activity.activity == 2:
+                # receiving do reordering vote
+                er_tmp = ElectionRound.objects.get(name="TMP Order")
+                election = er_tmp.election_set.get(name="Change election order")
+                if election.has_user_voted(user, 0):
+                    return HttpResponseBadRequest("You have already voted")
+                choice = Candidate.objects.filter(id=request.POST.get("ballot", ""))
+                if len(choice) == 0:
+                    return HttpResponseBadRequest("Invalid vote")
+                choice = choice[0]
+                #if len(PreferenceProfile.objects.filter(election=election, user=user)) > 0:
+                #    return HttpResponseBadRequest("You have already voted")
+                profile = PreferenceProfile(user=user, election=election)
+                profile.save()
+                vote = Vote(candidate=choice, profile=profile)
+                vote.save()
+                status = "Vote cast"
+            elif activity.activity == 4:
+                # receiving reordering vote
+                er_tmp = ElectionRound.objects.get(name="TMP Order")
+                election = er_tmp.election_set.get(name="Election order")
+                if election.has_user_voted(user, 0):
+                    return HttpResponseBadRequest("You have already voted")
+                #if len(PreferenceProfile.objects.filter(election=election, user=user)) > 0:
+                #    return HttpResponseBadRequest("You have already voted")
+                profile = PreferenceProfile(user=user, election=election)
+                profile.save()
+                for candidate in election.candidates.all():
+                    rank = request.POST.get("ballot_" + str(candidate.id), "")
+                    vote = Vote(candidate=candidate, profile=profile, rank=int(rank))
+                    vote.save()
+                    
+                status = "Vote cast"
+        else:
+            if activity.activity == 0:
+                # Pre-start
+                status = "Nothing is happening yet - please wait"
+            elif activity.activity == 1:
+                # pre do reordering vote
+                status = "Nothing is happening yet - please wait"
+            elif activity.activity == 2:
+                # do reordering vote open
+                er_tmp = ElectionRound.objects.get(name="TMP Order")
+                election = er_tmp.election_set.get(name="Change election order")
+                if election.has_user_voted(user, 0):
+                    status = "Vote cast"
+                else:
+                    status = "Election reordering vote"
+                    is_voting = True
+                    voting_question = "Should the current election order be changed?"
+                    options = election.candidates.all()
+                    election_id = election.id
+            elif activity.activity == 3:
+                # do reordering vote closed
+                status = "Election reordering vote done"
+            elif activity.activity == 4:
+                # reordering vote open
+                er_tmp = ElectionRound.objects.get(name="TMP Order")
+                election = er_tmp.election_set.get(name="Election order")
+                if election.has_user_voted(user, 0):
+                    status = "Vote cast"
+                else:
+                    status = "Election reordering vote"
+                    is_voting = True
+                    voting_full_rank = True
+                    voting_question = "Rank the elctions in the order in which they should be voted on (1 first)"
+                    options = election.candidates.all()
+                    election_id = election.id
+                
     
     if is_voting and (not voting_full_rank):
         template = loader.get_template("elections/choice_vote.html")
+    elif is_voting and voting_full_rank:
+        template = loader.get_template("elections/rank_vote.html")
     else:
         template = loader.get_template("elections/vote_base.html")
     context = RequestContext(request, {

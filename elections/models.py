@@ -10,6 +10,10 @@ class VotingRuleOption(models.Model):
             return rules.PluralityRule
         elif self.rule == 1:
             return rules.PluralityRunoffRule
+        elif self.rule == 2:
+            return rules.BordaRule
+        elif self.rule == 3:
+            return rules.STV
         else:
             return None
     
@@ -18,6 +22,10 @@ class VotingRuleOption(models.Model):
             return "Plurality"
         elif self.rule == 1:
             return "Plurality Runoff"
+        elif self.rule == 2:
+            return "Borda"
+        elif self.rule == 3:
+            return "STV"
         else:
             return "Undefined Rule"
 
@@ -53,6 +61,11 @@ class Election(models.Model):
     candidates = models.ManyToManyField(Candidate, blank=True, null=True)
     order = models.IntegerField("Election Order Number", default=1)
     
+    def has_user_voted(self, user, subround):
+        profiles = self.preferenceprofile_set.filter(user=user, subround=subround)
+        
+        return (len(profiles) > 0)
+    
     def __unicode__(self):
         return self.name
 
@@ -60,6 +73,10 @@ class PreferenceProfile(models.Model):
     user = models.ForeignKey(User)
     election = models.ForeignKey(Election)
     subround = models.IntegerField("Election Sub-Round #", default=0)
+    
+    def __unicode__(self):
+        return self.election.name + "-" + str(self.subround) + " (" + self.user.__unicode__() + ")"
+    
 
 class Vote(models.Model):
     candidate = models.ForeignKey(Candidate)
@@ -67,7 +84,7 @@ class Vote(models.Model):
     rank = models.IntegerField("0-indexed Rank", default=0)
     
     def __unicode__(self):
-        return self.election.name + " : " + self.candidate.get_name()
+        return self.profile.election.name + " : " + self.candidate.get_name() + " (" + str(self.rank) + ")"
 
 class ElectionResult(models.Model):
     election = models.ForeignKey(Election)

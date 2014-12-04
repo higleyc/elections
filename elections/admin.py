@@ -1,5 +1,5 @@
 from django.contrib import admin
-from elections.models import ElectionRound, Election, Candidate, Vote, CurrentActivity
+from elections.models import *
 
 class ElectionAdminInline(admin.TabularInline):
     model = Election
@@ -21,3 +21,4 @@ admin.site.register(Election, ElectionAdmin)
 admin.site.register(Candidate)
 admin.site.register(Vote)
 admin.site.register(CurrentActivity)
+admin.site.register(PreferenceProfile)
