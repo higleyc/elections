@@ -1,7 +1,41 @@
-{% if immediate_refresh %}
-    <script type="application/x-javascript">
-    window.location = window.location.href;
-    </script>
-{% endif %}
-
-{% block content %}{% endblock %}
+<html>
+    <head>
+        <title>Elections</title>
+        <style type="text/css">
+            html
+            {
+                font-family: sans-serif;
+            }
+            #voting_container
+            {
+                width: 100%;
+                height: 100%;
+            }
+            #voting_content
+            {
+                width: 400px;
+                margin-left: auto;
+                margin-right: auto;
+            }
+            #button_box
+            {
+                text-align: center;
+            }
+            #events
+            {
+                width: 600px;
+                margin-left: auto;
+                margin-right: auto;
+            }
+        </style>
+    </head>
+    <body>
+        {% if immediate_refresh %}
+            <script type="application/x-javascript">
+            window.location = window.location.href;
+            </script>
+        {% endif %}
+        
+        {% block content %}{% endblock %}
+    </body>
+</html>

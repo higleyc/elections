@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <form method="post" action="{% url "elections.views.manage_election" %}">
+        {% csrf_token %}
+        <select name="round">
+            {% for round in round_list %}
+                <option value="{{ round.id }}">{{ round.name }}</option>
+            {% endfor %}
+        </select>
+        <input type="submit" value="Go" />
+    </form>
+    
+    
+{% endblock %}

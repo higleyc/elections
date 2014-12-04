@@ -18,14 +18,15 @@ class Option:
 
 def valid_ranking(rankings):
     numbers = {}
-    for i in range(len(rankings)):
+    for i in range(1, len(rankings) + 1):
         numbers[i] = False
     for ranking in rankings:
+        print ranking
         if ranking[1] <1 or ranking[1] > len(rankings):
             return False
-        if numbers[ranking[i]]:
+        if numbers[ranking[1]]:
             return False
-        numbers[ranking[i]] = True
+        numbers[ranking[1]] = True
     
     return True
 
@@ -315,14 +316,14 @@ def vote(request):
                 election = er_tmp.election_set.get(name="Election order")
                 if election.has_user_voted(user, 0):
                     return HttpResponseBadRequest("You have already voted")
-                profile = PreferenceProfile(user=user, election=election)
-                profile.save()
                 rankings = []
                 for candidate in election.candidates.all():
                     rank = request.POST.get("ballot_" + str(candidate.id), "")
-                    rankings.append((candidate, rank))
+                    rankings.append((candidate, int(rank)))
                 if not valid_ranking(rankings):
                     return HttpResponseBadRequest("Invalid ranking")
+                profile = PreferenceProfile(user=user, election=election)
+                profile.save()
                 for ranking in rankings:
                     vote = Vote(candidate=ranking[0], profile=profile, rank=int(ranking[1]))
                     vote.save()
@@ -332,18 +333,21 @@ def vote(request):
                 election = activity.election
                 if election.has_user_voted(user, 0):
                     return HttpResponseBadRequest("You have already voted")
-                profile = PreferenceProfile(user=user, election=election)
-                profile.save()
                 if election_round.rule.get_rule_class().requires_full_rank:
+                    rankings = []
                     for candidate in election.candidates.all():
                         rank = request.POST.get("ballot_" + str(candidate.id), "")
-                        rankings.append((candidate, rank))
+                        rankings.append((candidate, int(rank)))
                     if not valid_ranking(rankings):
                         return HttpResponseBadRequest("Invalid ranking")
+                    profile = PreferenceProfile(user=user, election=election)
+                    profile.save()
                     for ranking in rankings:
                         vote = Vote(candidate=ranking[0], profile=profile, rank=int(ranking[1]))
                         vote.save() 
                 else:
+                    profile = PreferenceProfile(user=user, election=election)
+                    profile.save()
                     choice = Candidate.objects.filter(id=request.POST.get("ballot", ""))
                     if len(choice) == 0:
                         return HttpResponseBadRequest("Invalid vote")
@@ -433,7 +437,8 @@ def vote(request):
         "options" : full_options,
         "option_names" : option_names,
         "election_id" : election_id,
-        "events" : events
+        "events" : events,
+        "is_voting" : is_voting
     })
     
     return HttpResponse(template.render(context))

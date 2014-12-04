@@ -1,14 +1,31 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <h2>{{ voting_status }}</h2>
-    {% block voting_content %}{% endblock %}
-    <table>
-        {% for event in events%}
-            <tr>
-                <td>{{ event.timestamp }}</td>
-                <td>{{ event.content }}</td>
-            </tr>
-        {% endfor %}
-    </table>
+    <div id="voting_container">
+        <div id="voting_content">
+            <h2>{{ voting_status }}</h2>
+            <p>{{ voting_question }}</p>
+            <form method="post" action="{% url "elections.views.vote" %}">
+                {% csrf_token %}
+                    {% block voting_content %}{% endblock %}
+                <input type="hidden" name="election" value="{{ election_id }}" />
+                {% if is_voting %}
+                    <div id="button_box">
+                        <input type="submit" value="Vote" />
+                    </div>
+                {% endif %}
+            </form>
+        </div>
+        <div id="events">
+            <span style="font-style: italic; text-align: center">Recent events</span><br /><br />
+            <table>
+                {% for event in events%}
+                    <tr>
+                        <td>{{ event.timestamp }}</td>
+                        <td>{{ event.content }}</td>
+                    </tr>
+                {% endfor %}
+            </table>
+        </div>
+    </div>
 {% endblock %}

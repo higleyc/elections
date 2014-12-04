@@ -1,6 +1,6 @@
 {% extends "elections/vote_base.html" %}
 {% block voting_content %}
     {% for option in options %}
-        <input type="radio" name="ballot" value="{{ option.id }}" />{{ option.name }}<br />
+        <input type="text" size="3" name="ballot_{{ option.id }}" /> {{ option.name }}<br />
     {% endfor %}
 {% endblock %}
