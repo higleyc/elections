@@ -165,3 +165,4 @@ LOGGING = {
 }
 
 LOGIN_REDIRECT_URL = '/vote'
+LOGIN_URL = '/login'

@@ -1,1 +1,7 @@
+{% if immediate_refresh %}
+    <script type="application/x-javascript">
+    window.location = window.location.href;
+    </script>
+{% endif %}
+
 {% block content %}{% endblock %}

@@ -12,6 +12,11 @@ class IndexView(generic.ListView):
     model = ElectionRound
     template_name = "elections/index.html"
 
+class Option:
+    id = None
+    name = None
+
+
 @login_required
 def manage_election(request):
     if not request.user.is_superuser:
@@ -208,6 +213,7 @@ def vote(request):
     voting_question = ""
     election_id = -1
     options = []
+    option_names = []
     
     
     #ACTIVITY IDS
@@ -239,8 +245,6 @@ def vote(request):
                 if len(choice) == 0:
                     return HttpResponseBadRequest("Invalid vote")
                 choice = choice[0]
-                #if len(PreferenceProfile.objects.filter(election=election, user=user)) > 0:
-                #    return HttpResponseBadRequest("You have already voted")
                 profile = PreferenceProfile(user=user, election=election)
                 profile.save()
                 vote = Vote(candidate=choice, profile=profile)
@@ -252,15 +256,32 @@ def vote(request):
                 election = er_tmp.election_set.get(name="Election order")
                 if election.has_user_voted(user, 0):
                     return HttpResponseBadRequest("You have already voted")
-                #if len(PreferenceProfile.objects.filter(election=election, user=user)) > 0:
-                #    return HttpResponseBadRequest("You have already voted")
                 profile = PreferenceProfile(user=user, election=election)
                 profile.save()
                 for candidate in election.candidates.all():
                     rank = request.POST.get("ballot_" + str(candidate.id), "")
                     vote = Vote(candidate=candidate, profile=profile, rank=int(rank))
                     vote.save()
-                    
+                status = "Vote cast"
+            elif activity.activity == 7:
+                # receiving regular vote
+                election = activity.election
+                if election.has_user_voted(user, 0):
+                    return HttpResponseBadRequest("You have already voted")
+                profile = PreferenceProfile(user=user, election=election)
+                profile.save()
+                if election_round.rule.get_rule_class().requires_full_rank:
+                    for candidate in election.candidates.all():
+                        rank = request.POST.get("ballot_" + str(candidate.id), "")
+                        vote = Vote(candidate=candidate, profile=profile, rank=int(rank))
+                        vote.save()
+                else:
+                    choice = Candidate.objects.filter(id=request.POST.get("ballot", ""))
+                    if len(choice) == 0:
+                        return HttpResponseBadRequest("Invalid vote")
+                    choice = choice[0]
+                    vote = Vote(candidate=choice, profile=profile)
+                    vote.save()
                 status = "Vote cast"
         else:
             if activity.activity == 0:
@@ -297,7 +318,37 @@ def vote(request):
                     voting_question = "Rank the elctions in the order in which they should be voted on (1 first)"
                     options = election.candidates.all()
                     election_id = election.id
-                
+            elif activity.activity == 5:
+                # reordering vote closed
+                status = "Election reordering vote done"
+            elif activity.activity == 6:
+                # pre-vote
+                status = "Waiting to vote"
+            elif activity.activity == 7:
+                # vote open
+                election = activity.election
+                if election.has_user_voted(user, 0):
+                    status = "Vote cast"
+                else:
+                    status = "Vote on " + election.name
+                    is_voting = True
+                    voting_full_rank = election_round.rule.get_rule_class().requires_full_rank
+                    voting_question = "Indicate your preference on the following candidates"
+                    options = election.candidates.all()
+                    election_id = election.id
+            elif activity.activity == 8:
+                # post-vote
+                status = "Please wait"
+            elif activity.activity == 9:
+                # voting done
+                status = "All elections complete"
+    
+    full_options = []        
+    for option in options:
+        o = Option()
+        o.id = option.id
+        o.name = option.get_name()
+        full_options.append(o)
     
     if is_voting and (not voting_full_rank):
         template = loader.get_template("elections/choice_vote.html")
@@ -308,7 +359,8 @@ def vote(request):
     context = RequestContext(request, {
         "voting_status" : status,
         "voting_question" : voting_question,
-        "options" : options,
+        "options" : full_options,
+        "option_names" : option_names,
         "election_id" : election_id
     })
     
