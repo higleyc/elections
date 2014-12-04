@@ -98,9 +98,11 @@ class CurrentActivity(models.Model):
     #2 - do reordering vote open
     #3 - do reordering vote closed
     #4 - reordering vote open
-    #5 - pre-vote
-    #6 - vote open
-    #7 - done
+    #5 - post-reordering
+    #6 - pre-vote
+    #7 - vote open
+    #8 - post-vote
+    #9 - done
     
     election_round = models.ForeignKey(ElectionRound)
     activity = models.IntegerField("Activity ID", default=0)

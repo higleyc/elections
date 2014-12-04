@@ -99,9 +99,9 @@ class PluralityRunoffRule(PluralityRule):
         if len(self.sorted_results) > 2 and \
             self.sorted_results[0][1] / len(self.sorted_results) < 0.5:
             self.curr_candidates = list()
-            self.curr_candidates[0] = self.sorted_results[0][0]
-            self.curr_candidates[1] = self.sorted_results[1][0]
-            active_round += 1
+            self.curr_candidates.append(self.sorted_results[0][0])
+            self.curr_candidates.append(self.sorted_results[1][0])
+            self.active_round += 1
             return True
         
         return False

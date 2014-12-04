@@ -12,11 +12,16 @@ class IndexView(generic.ListView):
     model = ElectionRound
     template_name = "elections/index.html"
 
+@login_required
 def manage_election(request):
+    if not request.user.is_superuser:
+        return HttpResponseBadRequest("You are not logged in as an admin")
+    
     message = ""
     button_message = ""
     election_round = ElectionRound.objects.all()[0]
     next_stage = 0
+    immediate_refresh = False
     
     if request.method == "POST":
         #election_round = ElectionRound.objects.get(id=request.POST.get("round", ""))
@@ -78,11 +83,11 @@ def manage_election(request):
         no_votes = plurality.result_vector[election.candidates.get(name="No")]
         result = ElectionResult(election=election, conclusive=True)
         if yes_votes / (yes_votes + no_votes) < election_round.order_vote_margin / 100:
-            activity.activity = 5
+            activity.activity = 6
             activity.save()
             result.winner = election.candidates.get(name="No")
             result.save()
-            return vote(request)
+            return manage_election(request)
         
         result.winner = election.candidates.get(name="Yes")
         result.save()
@@ -118,29 +123,67 @@ def manage_election(request):
                     candidate.delete()
                 election.delete()
             er_tmp.delete()
-                
+            
+            activity.activity = 6
+            immediate_refresh = True
+    elif activity.activity == 6:
+        # pre-vote
         if activity.election == None:
             activity.election = Election.objects.filter(election_round=election_round).get(order=1)
             message = "Ready to vote on " + activity.election.__unicode__()
             button_message = "Start voting"
-            activity.next_activity = 6
+            activity.next_activity = 7
         else:
             elections = Election.objects.filter(election_round=election_round).filter(order=(activity.election.order + 1))
             if len(elections) == 0:
                 message = "Elections done!"
                 message_button = "Finish"
-                activity.next_activity = 7
+                activity.next_activity = 9
             else:
                 activity.election = elections[0]
                 message = "Ready to vote on " + activity.election.__unicode__()
                 button_message = "Start voting"
-                activity.next_activity = 6
-    elif activity.activity == 6:
+                activity.next_activity = 7
+    elif activity.activity == 7:
+        # vote open
         message = "Voting on " + activity.election.__unicode__()
         button_message = "Close voting"
-        activity.next_activity = 5
-    elif activity.activity == 7:
+        activity.next_activity = 8
+    elif activity.activity == 8:
+        # post-vote - do voting
+        election = activity.election
+        rule_class = election_round.rule.get_rule_class()
+        mechanism = rule_class(election)
+        profiles = PreferenceProfile.objects.filter(election=election)
+        if mechanism.execute_round(profiles):
+            subelection = Election(name=(election.name + " - Next round"),
+                                   election_round=election_round,
+                                   order=(election.order + 1))
+            subelection.save()
+            for candidate in mechanism.curr_candidates:
+                subelection.candidates.add(candidate)
+            subelection.save()
+            after_elections = Election.objects.filter(election_round=election_round).filter(order__gt=election.order)
+            for after_election in after_elections:
+                after_election.order += 1
+                after_election.save()
+        else:
+            results = ElectionResult(election=election)
+            winner = mechanism.get_winner()
+            if winner == False:
+                results.conclusive = False
+            else:
+                results.conclusive= True
+                results.winner = winner
+            results.save()
+        
+        activity.activity = 6
+        immediate_refresh = True
+        
+    elif activity.acitvity == 9:
+        # all voting done
         message = "You're all done"
+        
     
     activity.save()
     
@@ -150,7 +193,8 @@ def manage_election(request):
         "next_stage" : next_stage,
         "selected_round" : election_round,
         "status_message" : message,
-        "round_list" : ElectionRound.objects.all()})
+        "round_list" : ElectionRound.objects.all(),
+        "immediate_refresh" : immediate_refresh})
     
     return HttpResponse(template.render(context))
 
@@ -172,9 +216,11 @@ def vote(request):
     #2 - do reordering vote open
     #3 - do reordering vote closed
     #4 - reordering vote open
-    #5 - pre-vote
-    #6 - vote open
-    #7 - done
+    #5 - post-reordering
+    #6 - pre-vote
+    #7 - vote open
+    #8 - post-vote
+    #9 - done
     
     
     activities = CurrentActivity.objects.filter(election_round=election_round)
